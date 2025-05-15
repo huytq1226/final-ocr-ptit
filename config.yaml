@@ -1,0 +1,38 @@
+# Cấu hình tiền xử lý hình ảnh
+preprocessing:
+  # Kích thước chuẩn hóa cho hình ảnh
+  target_size: [640, 480]
+  # Ngưỡng cho ảnh nhị phân
+  threshold_value: 127
+  # Kích thước kernel cho khử nhiễu
+  denoise_kernel_size: 3
+
+# Cấu hình huấn luyện
+training:
+  # Số lượng mẫu trong một batch
+  batch_size: 8
+  # Số epoch huấn luyện
+  num_epochs: 10
+  # Tốc độ học
+  learning_rate: 0.001
+  # Tỷ lệ chia tập train/test
+  train_test_split: 0.8
+
+# Cấu hình EasyOCR
+easyocr:
+  # Ngôn ngữ hỗ trợ
+  languages: ["vi"]
+  # Sử dụng GPU nếu có
+  gpu: false
+  # Số worker cho việc xử lý
+  workers: 4
+  # Độ tin cậy tối thiểu cho kết quả
+  min_confidence: 0.5
+
+# Cấu hình đường dẫn
+paths:
+  input_dir: "input_images"
+  processed_dir: "processed_images"
+  model_dir: "trained_models"
+  labels_file: "labels.txt"
+  output_file: "output.txt"
