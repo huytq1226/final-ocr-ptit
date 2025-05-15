@@ -31,7 +31,7 @@ easyocr:
 
 # Cấu hình đường dẫn
 paths:
-  input_dir: "input_images"
+  input_dir: "ocr_data/input_images/subfolder_1"
   processed_dir: "processed_images"
   model_dir: "trained_models"
   labels_file: "labels.txt"
