@@ -1,0 +1,23 @@
+easyocr:
+  gpu: true
+  languages:
+  - vi
+  min_confidence: 0.5
+  workers: 4
+paths:
+  input_dir: ocr_data/input_images/subfolder_2
+  labels_file: labels.txt
+  model_dir: trained_models
+  output_file: output.txt
+  processed_dir: processed_images
+preprocessing:
+  denoise_kernel_size: 3
+  target_size:
+  - 100
+  - 32
+  threshold_value: 127
+training:
+  batch_size: 32
+  learning_rate: 0.005
+  num_epochs: 10
+  train_test_split: 0.8

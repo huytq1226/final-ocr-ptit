@@ -481,6 +481,180 @@ class OCRProcessor:
             logger.error(f"Lỗi trong quá trình huấn luyện: {e}")
             raise
 
+            import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import torchvision.transforms as transforms
+import cv2
+import numpy as np
+from tqdm import tqdm
+from typing import Dict, List, Tuple
+
+# Tập dữ liệu tùy chỉnh cho OCR
+class OCRDataset(Dataset):
+    def __init__(self, image_paths: List[str], labels: List[str], transform=None):
+        self.image_paths = image_paths
+        self.labels = labels
+        self.transform = transform
+        # Tạo từ điển ký tự
+        all_chars = set(''.join(labels))
+        self.char_to_idx = {char: idx + 1 for idx, char in enumerate(sorted(all_chars))}  # Bắt đầu từ 1, 0 dành cho blank
+        self.char_to_idx[''] = 0  # Blank token cho CTC Loss
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        label = self.labels[idx]
+        # Đọc và tiền xử lý ảnh
+        image = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        image = cv2.resize(image, (100, 32))  # Kích thước chuẩn cho CRNN
+        image = image.astype(np.float32) / 255.0
+        image = torch.from_numpy(image).unsqueeze(0)  # [1, H, W]
+
+        if self.transform:
+            image = self.transform(image)
+
+        # Chuyển nhãn thành dạng số
+        target = [self.char_to_idx[char] for char in label]
+        return image, torch.tensor(target, dtype=torch.long), len(target)
+
+# Mô hình CRNN đơn giản
+class CRNN(nn.Module):
+    def __init__(self, num_chars):
+        super(CRNN, self).__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+        )
+        self.rnn = nn.LSTM(128 * 8, 256, num_layers=2, batch_first=True, bidirectional=True)
+        self.fc = nn.Linear(256 * 2, num_chars)
+
+    def forward(self, x):
+        x = self.conv_layers(x)  # [B, C, H, W]
+        B, C, H, W = x.size()
+        x = x.permute(0, 3, 1, 2).view(B, W, C * H)  # [B, W, C*H]
+        x, _ = self.rnn(x)  # [B, W, 512]
+        x = self.fc(x)  # [B, W, num_chars]
+        return x
+
+def train_model(self, data: Dict) -> None:
+    """
+    Huấn luyện mô hình OCR trên GPU.
+    
+    Args:
+        data (Dict): Dữ liệu đã được chuẩn bị
+    """
+    try:
+        logger.info("Bắt đầu huấn luyện mô hình...")
+
+        # Thiết lập thiết bị
+        device = torch.device("cuda" if torch.cuda.is_available() and self.config['easyocr']['gpu'] else "cpu")
+        logger.info(f"Thiết bị: {device}")
+
+        # Tạo tập dữ liệu và DataLoader
+        transform = transforms.Compose([transforms.Normalize((0.5,), (0.5,))])
+        train_dataset = OCRDataset(data['train']['paths'], data['train']['labels'], transform=transform)
+        test_dataset = OCRDataset(data['test']['paths'], data['test']['labels'], transform=transform)
+
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.config['training']['batch_size'],
+            shuffle=True,
+            num_workers=self.config['easyocr']['workers']
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=self.config['training']['batch_size'],
+            shuffle=False,
+            num_workers=self.config['easyocr']['workers']
+        )
+
+        # Khởi tạo mô hình
+        num_chars = len(train_dataset.char_to_idx)  # Số ký tự + blank
+        model = CRNN(num_chars).to(device)
+        criterion = nn.CTCLoss(blank=0, zero_infinity=True)
+        optimizer = optim.Adam(model.parameters(), lr=self.config['training']['learning_rate'])
+
+        # Tạo thư mục cho mô hình
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_path = self.model_dir / f"model_{timestamp}"
+        model_path.mkdir(exist_ok=True)
+
+        # Huấn luyện mô hình
+        for epoch in range(self.config['training']['num_epochs']):
+            model.train()
+            epoch_loss = 0
+            correct_predictions = 0
+            total_predictions = 0
+
+            # Huấn luyện trên tập train
+            for images, targets, target_lengths in tqdm(
+                train_loader,
+                desc=f"Epoch {epoch + 1}/{self.config['training']['num_epochs']}"
+            ):
+                images = images.to(device)
+                batch_size = images.size(0)
+
+                # Dự đoán
+                optimizer.zero_grad()
+                outputs = model(images)  # [B, W, num_chars]
+                outputs = outputs.log_softmax(2)  # Áp dụng log_softmax
+
+                # Chuẩn bị input lengths và target lengths cho CTC Loss
+                input_lengths = torch.full((batch_size,), outputs.size(1), dtype=torch.long, device=device)
+                target_lengths = torch.tensor(target_lengths, dtype=torch.long, device=device)
+                flat_targets = torch.cat([t for t in targets]).to(device)
+
+                # Tính loss
+                loss = criterion(outputs.permute(1, 0, 2), flat_targets, input_lengths, target_lengths)
+                loss.backward()
+                optimizer.step()
+
+                epoch_loss += loss.item()
+
+                # Tính accuracy (đơn giản hóa)
+                model.eval()
+                with torch.no_grad():
+                    preds = torch.argmax(outputs, dim=2)
+                    for i in range(batch_size):
+                        pred = preds[i].cpu().numpy()
+                        target = targets[i].cpu().numpy()
+                        pred_str = ''.join([list(train_dataset.char_to_idx.keys())[list(train_dataset.char_to_idx.values()).index(idx)] for idx in pred if idx != 0])
+                        target_str = ''.join([list(train_dataset.char_to_idx.keys())[list(train_dataset.char_to_idx.values()).index(idx)] for idx in target])
+                        if pred_str.strip() == target_str.strip():
+                            correct_predictions += 1
+                        total_predictions += 1
+                model.train()
+
+            # Tính toán metrics
+            avg_loss = epoch_loss / len(train_loader)
+            accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
+
+            self.training_history.append({
+                'epoch': epoch + 1,
+                'loss': avg_loss,
+                'accuracy': accuracy
+            })
+
+            logger.info(f"Epoch {epoch + 1}: Loss = {avg_loss:.4f}, Accuracy = {accuracy:.4f}")
+
+        # Lưu mô hình
+        torch.save(model.state_dict(), model_path / "crnn.pth")
+        self.save_training_history(model_path)
+
+        logger.info(f"Hoàn thành huấn luyện! Mô hình được lưu tại: {model_path}")
+
+    except Exception as e:
+        logger.error(f"Lỗi trong quá trình huấn luyện: {e}")
+        raise
+
 def main():
     """Hàm chính của chương trình."""
     try:

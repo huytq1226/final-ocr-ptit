@@ -1,7 +1,7 @@
 import os
 
 # Đường dẫn đến thư mục chứa ảnh
-input_dir = "ocr_data/input_images/subfolder_1"
+input_dir = "ocr_data/input_images/subfolder_2"
 
 # Đường dẫn đến tệp labels.txt sẽ được tạo
 label_file = "labels.txt"
